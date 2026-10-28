@@ -8,8 +8,10 @@
     "dev": "node tools/serve.mjs",
     "start": "node tools/serve.mjs",
     "test": "node tools/dom-test.mjs",
-    "test:rules": "node tools/selfplay.mjs pro 6 && node tools/foul-stats.mjs pro",
-    "test:shots": "node tools/render-test.mjs aim && node tools/render-test.mjs midgame && node tools/render-test.mjs pockets"
+    "test:physics": "node tools/physics-test.mjs",
+    "test:aim": "node tools/aim-test.mjs",
+    "test:rules": "node tools/selfplay.mjs pro 4 && node tools/foul-stats.mjs pro",
+    "test:shots": "node tools/render-test.mjs midgame && node tools/render-test.mjs pockets"
   },
   "devDependencies": {
     "@napi-rs/canvas": "^0.1.80",
