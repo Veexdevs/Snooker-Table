@@ -1,36 +1,28 @@
 /*
- * app.js — controla a partida: menu, entrada do jogador, turnos da IA,
- * HUD, sons e telas de fim de jogo.
+ * app.js — controla a partida: HUD, barra de força, giz, efeito, turnos da
+ * IA, sons, partículas e telas de fim de jogo.
  */
 
 import {
   createGame, startShot, resolveShot, placeCueBall, cueBall, groupBalls, legalTargets,
 } from './rules.js';
-import { simulate, createShotLog } from './physics.js';
+import { simulate, createShotLog, powerToSpeed, isMoving } from './physics.js';
 import { createRenderer } from './render.js';
 import { planAIShot, aimGuide, DIFFICULTIES } from './ai.js';
 import { Sound } from './audio.js';
+import { Particles } from './fx.js';
 import {
   PLAY_W, PLAY_H, BALL_R, ballColor, isStripe, isFreeSpot, randomFreeSpot,
 } from './table.js';
 import { clamp, formatNumber } from './util.js';
 
-/* ---------------------------------------------------------------- */
-/* persistência                                                     */
-/* ---------------------------------------------------------------- */
-
-const STORE_KEY = 'bp8p.pro.v1';
-
+/* ================= persistência ================= */
+const STORE_KEY = 'bp8p.pro.v2';
 const store = {
   data: {
-    coins: 2500,
-    wins: 0,
-    losses: 0,
-    pots: 0,
-    bestStreak: 0,
-    sound: true,
-    guide: true,
-    difficulty: 'medium',
+    coins: 2500, wins: 0, losses: 0, pots: 0, bestStreak: 0,
+    sound: true, guide: true, difficulty: 'medium',
+    chalkWhite: 3, chalkBlue: 3,
   },
   load() {
     try {
@@ -44,32 +36,42 @@ const store = {
 };
 store.load();
 
-/* ---------------------------------------------------------------- */
-/* elementos                                                       */
-/* ---------------------------------------------------------------- */
-
+/* ================= elementos ================= */
 const $ = (sel) => document.querySelector(sel);
 const canvas = $('#table');
 const bgCanvas = $('#table-bg');
 const renderer = createRenderer(canvas, bgCanvas);
+const particles = new Particles();
 
 const el = {
+  topbar: $('#topbar'),
   screens: { menu: $('#screen-menu'), game: $('#screen-game') },
-  panels: [$('#panel0'), $('#panel1')],
+  cards: [$('#card0'), $('#card1')],
+  avatars: [$('#avatar0'), $('#avatar1')],
   names: [$('#name0'), $('#name1')],
-  groups: [$('#group0'), $('#group1')],
-  potted: [$('#potted0'), $('#potted1')],
+  lvls: [$('#lvl0'), $('#lvl1')],
+  coins: [$('#coins0'), $('#coins1')],
+  ballsRows: [$('#balls0'), $('#balls1')],
+  turnText: $('#turnText'),
+  turnBar: $('#turnBar'),
   toast: $('#toast'),
   think: $('#think'),
   thinkText: $('#thinkText'),
+  powerColumn: $('#powerColumn'),
+  powerBar: $('#powerBar'),
   powerFill: $('#powerFill'),
+  powerHandle: $('#powerHandle'),
   powerPct: $('#powerPct'),
-  shotHelp: $('#shotHelp'),
   spinPad: $('#spinPad'),
   spinDot: $('#spinDot'),
-  coins: $('#coinValue'),
-  btnSound: $('#btn-sound'),
+  spinNow: $('#spinNow'),
+  chalkWhite: $('#chalkWhite'),
+  chalkBlue: $('#chalkBlue'),
+  countWhite: $('#countWhite'),
+  countBlue: $('#countBlue'),
+  buffStrip: $('#buffStrip'),
   btnGuide: $('#btn-guide'),
+  btnSound: $('#btn-sound'),
   overlayMenu: $('#overlay-menu'),
   overlayHelp: $('#overlay-help'),
   overlayEnd: $('#overlay-end'),
@@ -79,45 +81,44 @@ const el = {
   endReason: $('#endReason'),
   endStats: $('#endStats'),
   confetti: $('#confetti'),
-  menuStats: {
-    wins: $('#statWins'), losses: $('#statLosses'), pots: $('#statPots'), streak: $('#statStreak'),
-  },
+  menuStats: { wins: $('#statWins'), losses: $('#statLosses'), pots: $('#statPots'), streak: $('#statStreak') },
 };
 
-/* ---------------------------------------------------------------- */
-/* estado do app                                                    */
-/* ---------------------------------------------------------------- */
+/* ================= estado do app ================= */
+const CHALK_TIME = 45;       // segundos de duração de cada giz
+const POWER_BONUS = 0.45;    // giz branco: +45% de força
+const SPIN_BONUS = 1.0;      // giz azul: +100% de efeito
+const TURN_TIME = 30;        // segundos por turno
+const TIME_SCALE = 1.7;      // acelera a simulação (o jogo fica ágil sem perder a física)
 
 const G = {
   state: null,
-  log: null,
-  renderer,
   mode: 'ai',
   difficulty: store.data.difficulty || 'medium',
+  log: null,
   aim: { angle: 0 },
   power: 0,
   charging: false,
-  chargeStart: 0,
+  powerPointer: null,
   pointer: null,
   pointerValid: false,
   showGuide: store.data.guide !== false,
-  effects: [],
-  draggingCue: false,
+  particles,
+  strike: null,
+  buffs: { power: 0, spin: 0 },
+  turnLeft: TURN_TIME,
   token: 0,
   timers: [],
-  last: 0,
-  frameId: null,
-  potSoundCount: 0,
-  toastTimer: null,
   aiPlaying: false,
+  frameId: null,
+  last: 0,
+  toastTimer: null,
 };
 
-/* ---------------------------------------------------------------- */
-/* utilidades de UI                                                 */
-/* ---------------------------------------------------------------- */
-
+/* ================= utilidades de UI ================= */
 function showScreen(name) {
   Object.entries(el.screens).forEach(([key, node]) => node.classList.toggle('active', key === name));
+  el.topbar.classList.toggle('hidden', name === 'menu');
   syncInsets();
   renderer.resize();
 }
@@ -125,128 +126,132 @@ function showScreen(name) {
 function openOverlay(node) { node.classList.add('open'); }
 function closeOverlay(node) { node.classList.remove('open'); }
 
-function hideToast() {
-  el.toast.className = 'toast';
-  clearTimeout(G.toastTimer);
-}
-
 function toast(message, kind = '') {
-  if (!message) { hideToast(); return; }
+  clearTimeout(G.toastTimer);
+  if (!message) { el.toast.className = 'toast'; return; }
   el.toast.textContent = message;
   el.toast.className = `toast show ${kind}`;
-  clearTimeout(G.toastTimer);
-  G.toastTimer = setTimeout(() => {
-    el.toast.className = `toast ${kind}`;
-  }, 2800);
+  G.toastTimer = setTimeout(() => { el.toast.className = `toast ${kind}`; }, 3000);
 }
 
-function updateCoins(animate = false) {
-  el.coins.textContent = formatNumber(store.data.coins);
-  if (animate) {
-    el.coins.animate(
-      [{ transform: 'scale(1)' }, { transform: 'scale(1.22)' }, { transform: 'scale(1)' }],
-      { duration: 380, easing: 'ease-out' },
-    );
-  }
+function formatClock(s) {
+  const v = Math.max(0, Math.ceil(s));
+  return `${v}`;
 }
 
-function updateMenuStats() {
-  el.menuStats.wins.textContent = formatNumber(store.data.wins);
-  el.menuStats.losses.textContent = formatNumber(store.data.losses);
-  el.menuStats.pots.textContent = formatNumber(store.data.pots);
-  el.menuStats.streak.textContent = formatNumber(store.data.bestStreak);
+/* ================= barra de força ================= */
+function setPower(p, { silent = false } = {}) {
+  G.power = clamp(p, 0, 1);
+  el.powerFill.style.height = `${G.power * 100}%`;
+  el.powerHandle.style.top = `${G.power * 100}%`;
+  el.powerPct.textContent = `${Math.round(G.power * 100)}%`;
+  el.powerColumn.classList.toggle('charging', G.charging && G.power > 0.02);
+  if (!silent && G.power > 0.02 && !G.charging) el.powerPct.classList.add('flash');
 }
 
-function updatePowerUI() {
-  const pct = Math.round(G.power * 100);
-  el.powerFill.style.width = `${G.power * 100}%`;
-  el.powerPct.textContent = `${pct}%`;
-  canvas.classList.toggle('charging', G.charging);
+function powerFromEvent(ev) {
+  const rect = el.powerBar.getBoundingClientRect();
+  return clamp((ev.clientY - rect.top) / rect.height, 0, 1);
 }
 
-function setSpinUI(x, y) {
-  el.spinDot.style.transform = `translate(calc(-50% + ${x * 17}px), calc(-50% + ${y * 17}px))`;
+/* ================= efeito ================= */
+const SPIN_LABELS = [
+  { key: 'centro', label: 'centro' },
+];
+function setSpin(x, y) {
+  G.state && (G.state.shot.spin = { x, y });
+  el.spinDot.style.transform = `translate(calc(-50% + ${x * 19}px), calc(-50% + ${y * 19}px))`;
+  const parts = [];
+  if (y < -0.12) parts.push('fundo');
+  else if (y > 0.12) parts.push('topo');
+  if (x < -0.12) parts.push('esq.');
+  else if (x > 0.12) parts.push('dir.');
+  el.spinNow.textContent = parts.length ? parts.join(' + ') : 'centro';
+  el.spinNow.classList.toggle('power', parts.length > 0);
 }
 
-/* ---------------------------------------------------------------- */
-/* HUD dos jogadores                                                */
-/* ---------------------------------------------------------------- */
-
-function miniBall(number, pocketed, extraClass = '') {
+/* ================= HUD ================= */
+function miniBall(number, potted) {
   const stripe = isStripe(number);
   const color = ballColor(number);
-  const cls = ['mini-ball', stripe ? 'stripe' : 'solid', pocketed ? 'is-potted' : 'is-left', extraClass]
+  const cls = ['mini-ball', stripe ? 'stripe' : 'solid', number === 8 ? 'eight' : '', potted ? 'potted' : '']
     .filter(Boolean).join(' ');
-  const style = pocketed ? `--c:${color};opacity:.32;filter:grayscale(.55)` : `--c:${color}`;
-  return `<div class="${cls}" style="${style}" title="${number}"><span>${number}</span></div>`;
+  return `<div class="${cls}" style="--c:${color}"><span>${number}</span></div>`;
 }
 
-function renderPottedStrip(index) {
+function renderBallRows() {
   const state = G.state;
-  const player = state.players[index];
-  const strip = el.potted[index];
-  if (!strip) return;
-  if (state.mode === 'practice') {
-    const potted = state.balls.filter((b) => b.pocketed && b.number > 0);
-    strip.innerHTML = potted.length
-      ? potted.map((b) => miniBall(b.number, false)).join('')
-      : '<span class="strip-hint">treino livre · Shift+clique move a branca</span>';
-    return;
+  if (!state) return;
+  for (const i of [0, 1]) {
+    const player = state.players[i];
+    const row = el.ballsRows[i];
+    if (state.mode === 'practice') {
+      const left = state.balls.filter((b) => !b.pocketed && b.number > 0).length;
+      row.innerHTML = `<span class="practice-left">${left} bolas</span>`;
+      continue;
+    }
+    const group = player.group;
+    if (!group) {
+      row.innerHTML = Array.from({ length: 7 }, () => '<div class="mini-ball empty"></div>').join('');
+      continue;
+    }
+    const numbers = group === 'solid' ? [1, 2, 3, 4, 5, 6, 7] : [9, 10, 11, 12, 13, 14, 15];
+    const eight = state.balls.find((b) => b.number === 8);
+    row.innerHTML = numbers
+      .map((n) => {
+        const ball = state.balls.find((b) => b.number === n);
+        return miniBall(n, !!ball?.pocketed);
+      })
+      .join('') + miniBall(8, !!eight?.pocketed);
   }
-  const group = player.group;
-  if (!group) {
-    strip.innerHTML = Array.from({ length: 7 }, () => '<div class="mini-ball empty"></div>').join('');
-    return;
-  }
-  const numbers = group === 'solid' ? [1, 2, 3, 4, 5, 6, 7] : [9, 10, 11, 12, 13, 14, 15];
-  const eightPotted = state.balls.find((b) => b.number === 8)?.pocketed;
-  strip.innerHTML = numbers.map((n) => {
-    const ball = state.balls.find((b) => b.number === n);
-    return miniBall(n, !!ball?.pocketed);
-  }).join('') + miniBall(8, !!eightPotted, 'eight');
 }
 
 function updateHUD() {
   const state = G.state;
   if (!state) return;
-
   for (const i of [0, 1]) {
+    const active = state.mode === 'practice' ? i === 0 : state.turn === i;
+    el.cards[i].classList.toggle('active', active && state.phase !== 'gameover');
     const player = state.players[i];
-    const panel = el.panels[i];
-    const isTurn = state.mode === 'practice' ? i === 0 : state.turn === i;
-    const active = isTurn && state.phase !== 'gameover';
-    panel.classList.toggle('active', active);
-    panel.classList.toggle('ai', player.isAI);
-
-    const group = player.group;
-    let groupText = 'grupo aberto';
-    let groupClass = '';
-    if (state.mode === 'practice') {
-      groupText = 'mesa livre';
-    } else if (group) {
-      const left = groupBalls(state, group).length;
-      groupText = group === 'solid' ? 'lisas 1–7' : 'listradas 9–15';
-      groupClass = group;
-      if (left === 0) groupText = 'bola 8!';
+    let group = 'aberto';
+    if (state.mode === 'practice') group = 'treino';
+    else if (player.group) {
+      group = player.group === 'solid' ? 'lisas' : 'listradas';
+      if (groupBalls(state, player.group).length === 0) group = 'bola 8';
     }
-    el.groups[i].textContent = groupText;
-    el.groups[i].className = `group-pill ${groupClass}`;
-    renderPottedStrip(i);
+    const groupEl = el.cards[i].querySelector('.p-group');
+    if (groupEl) {
+      groupEl.textContent = state.mode === 'practice' ? 'livre' : (group === 'aberto' ? 'grupo aberto' : group);
+      groupEl.className = `p-group ${player.group || ''}`;
+    }
   }
-
-  const humanTurn = !state.players[state.turn]?.isAI && state.phase !== 'gameover';
-  el.shotHelp.textContent = state.ballInHand
-    ? 'Bola na mão: clique numa posição livre para reposicionar a branca'
-    : humanTurn
-      ? 'Mova para mirar · segure para carregar · solte para tacar'
-      : 'Aguarde a jogada do adversário…';
-  canvas.classList.toggle('ballinhand', state.ballInHand && humanTurn);
+  const isHuman = !state.players[state.turn]?.isAI && state.phase !== 'gameover';
+  el.turnText.textContent = state.phase === 'gameover'
+    ? 'fim de jogo'
+    : state.ballInHand && isHuman
+      ? 'bola na mão'
+      : isHuman
+        ? 'sua vez'
+        : `${state.players[state.turn]?.name?.split('·')[0].trim() || 'adversário'}`;
+  renderBallRows();
+  canvas.classList.toggle('ballinhand', state.ballInHand && isHuman);
+  updateBuffs();
 }
 
-/* ---------------------------------------------------------------- */
-/* partida                                                          */
-/* ---------------------------------------------------------------- */
+function updateBuffs() {
+  const parts = [];
+  if (G.buffs.power > 0) parts.push(`<div class="buff-pill white">GIZ BRANCO +45% força<b>${Math.ceil(G.buffs.power)}s</b></div>`);
+  if (G.buffs.spin > 0) parts.push(`<div class="buff-pill blue">GIZ AZUL 2× efeito<b>${Math.ceil(G.buffs.spin)}s</b></div>`);
+  el.buffStrip.innerHTML = parts.join('');
+  el.chalkWhite.classList.toggle('on', G.buffs.power > 0);
+  el.chalkBlue.classList.toggle('on', G.buffs.spin > 0);
+  el.countWhite.textContent = store.data.chalkWhite;
+  el.countBlue.textContent = store.data.chalkBlue;
+  el.countWhite.classList.toggle('hidden', G.buffs.power > 0);
+  el.countBlue.classList.toggle('hidden', G.buffs.spin > 0);
+}
 
+/* ================= timers ================= */
 function clearTimers() {
   G.token++;
   for (const t of G.timers) clearTimeout(t);
@@ -264,40 +269,45 @@ function later(fn, delay) {
   return id;
 }
 
-function startGame({ mode = 'ai', difficulty = G.difficulty, playerName, opponentName }) {
+/* ================= partida ================= */
+function startGame({ mode = 'ai', difficulty = G.difficulty } = {}) {
   clearTimers();
   G.mode = mode;
   G.difficulty = difficulty;
   const names = mode === 'ai'
-    ? [playerName || 'Você', opponentName || `Computador · ${DIFFICULTIES[difficulty]?.name || 'Pro'}`]
+    ? ['Você', `CPU · ${DIFFICULTIES[difficulty]?.name || 'Pro'}`]
     : mode === 'local'
       ? ['Jogador 1', 'Jogador 2']
-      : ['Treino livre', 'Mesa profissional'];
-
+      : ['Treino livre', 'Mesa'];
   const state = createGame({ mode, difficulty, names });
   state.players[1].isAI = mode === 'ai';
   state.players[0].isAI = false;
-  if (mode === 'practice') {
-    state.turn = 0;
-    state.message = 'Treino livre: derrube as 15 bolas. Shift+clique move a branca.';
-  }
+  if (mode === 'practice') state.message = 'Treino livre: Shift + clique move a branca.';
+
   G.state = state;
-  G.aiPlaying = false;
   G.log = createShotLog();
+  G.aim.angle = 0;
   G.power = 0;
   G.charging = false;
-  G.effects = [];
-  G.pointer = null;
-  G.potSoundCount = 0;
-  G.aim.angle = 0;
-  updatePowerUI();
-  setSpinUI(0, 0);
-  state.shot.spin = { x: 0, y: 0 };
+  G.strike = null;
+  G.aiPlaying = false;
+  G.buffs = { power: 0, spin: 0 };
+  G.turnLeft = TURN_TIME;
+  particles.clear();
+  setPower(0, { silent: true });
+  setSpin(0, 0);
+  el.spinNow.textContent = 'centro';
 
   el.names[0].textContent = names[0];
   el.names[1].textContent = names[1];
-  el.panels[0].querySelector('.avatar').textContent = names[0].slice(0, 1).toUpperCase();
-  el.panels[1].querySelector('.avatar').textContent = names[1].slice(0, 1).toUpperCase();
+  el.avatars[0].textContent = names[0].slice(0, 1).toUpperCase();
+  el.avatars[1].textContent = names[1].slice(0, 1).toUpperCase();
+  el.lvls[0].textContent = `★ ${21 + (store.data.wins % 12)}`;
+  el.lvls[1].textContent = `★ ${50 + ({ easy: 8, medium: 21, pro: 47, legend: 78 }[difficulty] || 30)}`;
+  el.coins[0].textContent = formatNumber(store.data.coins);
+  el.coins[1].textContent = mode === 'ai'
+    ? formatNumber(1200 + ({ easy: 200, medium: 900, pro: 2400, legend: 5000 }[difficulty] || 600))
+    : '150';
 
   closeOverlay(el.overlayEnd);
   closeOverlay(el.overlayDiff);
@@ -305,75 +315,94 @@ function startGame({ mode = 'ai', difficulty = G.difficulty, playerName, opponen
   stopConfetti();
   showScreen('game');
   updateHUD();
-  updateCoins();
   toast(state.message || 'Boa sorte!', 'good');
   requestAnimationFrame(() => {
     syncInsets();
     renderer.resize();
+    pointAtNearestTarget();
     if (G.state.players[G.state.turn]?.isAI) scheduleAI();
   });
   if (!G.frameId) loop(performance.now());
-  pointAtNearestTarget();
+}
+
+function pointAtNearestTarget() {
+  const state = G.state;
+  if (!state) return;
+  const cue = cueBall(state);
+  if (!cue || cue.pocketed) return;
+  const targets = legalTargets(state, state.turn).filter((b) => b.number !== 0).filter((b) => !b.pocketed);
+  if (!targets.length) return;
+  let best = null;
+  let bd = Infinity;
+  for (const t of targets) {
+    const d = Math.hypot(t.x - cue.x, t.y - cue.y);
+    if (d < bd) { bd = d; best = t; }
+  }
+  if (best) G.aim.angle = Math.atan2(best.y - cue.y, best.x - cue.x);
+}
+
+/* ================= tacada ================= */
+function currentMultipliers() {
+  return {
+    powerMult: 1 + (G.buffs.power > 0 ? POWER_BONUS : 0),
+    spinMult: 1 + (G.buffs.spin > 0 ? SPIN_BONUS : 0),
+  };
 }
 
 function doShoot(angle, power, spin) {
   const state = G.state;
   if (!state || (state.phase !== 'aim' && state.phase !== 'ballinhand')) return;
   if (state.ballInHand) return;
+  const { powerMult, spinMult } = currentMultipliers();
   G.aim.angle = angle;
-  G.power = clamp(power, 0.05, 1);
-  state.shot.spin = spin || { x: 0, y: 0 };
   G.log = createShotLog();
-  G.potSoundCount = 0;
   state.phase = 'shooting';
-  startShot(state, { angle, power: G.power, spin: state.shot.spin });
-  Sound.strike(G.power);
-  G.charging = false;
-  updatePowerUI();
+  startShot(state, { angle, power, spin, powerMult, spinMult });
+  Sound.strike(clamp(power * powerMult, 0, 1));
   updateHUD();
-  hideToast();
+  toast('');
 }
 
-/* aponta a mira para a bola legal mais próxima (evita mirar no vazio) */
-function pointAtNearestTarget() {
+function releaseShot() {
   const state = G.state;
-  if (!state) return;
-  const cue = cueBall(state);
-  if (!cue || cue.pocketed) return;
-  const targets = legalTargets(state, state.turn).filter((b) => b.number !== 0);
-  if (!targets.length) return;
-  let best = targets[0];
-  let bd = Infinity;
-  for (const t of targets) {
-    const d = Math.hypot(t.x - cue.x, t.y - cue.y);
-    if (d < bd) { bd = d; best = t; }
+  const power = G.power;
+  G.charging = false;
+  el.powerColumn.classList.remove('charging');
+  G.powerPointer = null;
+  if (!state || state.phase !== 'aim' || !humanCanAct()) {
+    setPower(0, { silent: true });
+    return;
   }
-  G.aim.angle = Math.atan2(best.y - cue.y, best.x - cue.x);
+  if (power <= 0.03) {
+    setPower(0, { silent: true });
+    toast('Tacada cancelada — puxe a barra para baixo para carregar.', '');
+    return;
+  }
+  if (state.ballInHand) return;
+  // animação: o taco avança e só no contato a bola sai
+  G.strike = { t0: performance.now(), dur: 110, power };
+  const angle = G.aim.angle;
+  const spin = { ...state.shot.spin };
+  later(() => {
+    G.strike = null;
+    doShoot(angle, power, spin);
+    setPower(0, { silent: true });
+  }, 110);
 }
-
-function humanShoot() {
+function humanCanAct() {
   const state = G.state;
-  if (!state || state.phase !== 'aim') return;
-  const power = Math.max(0.055, G.power);
-  doShoot(G.aim.angle, power, { ...state.shot.spin });
-  G.power = 0;
-  updatePowerUI();
-  setSpinUI(0, 0);
-  state.shot.spin = { x: 0, y: 0 };
+  if (!state) return false;
+  if (state.phase !== 'aim' && state.phase !== 'ballinhand') return false;
+  return !state.players[state.turn]?.isAI || state.mode === 'practice';
 }
 
-/* ---------------------------------------------------------------- */
-/* IA                                                               */
-/* ---------------------------------------------------------------- */
-
+/* ================= IA ================= */
 function scheduleAI() {
   const state = G.state;
   if (!state || state.phase === 'gameover') return;
   const player = state.players[state.turn];
-  if (!player?.isAI) return;
-  if (G.aiPlaying) return;
+  if (!player?.isAI || G.aiPlaying) return;
   G.aiPlaying = true;
-
   el.thinkText.textContent = `${player.name.split('·')[0].trim()} pensando…`;
   el.think.hidden = false;
 
@@ -388,66 +417,49 @@ function scheduleAI() {
         const spot = randomFreeSpot(state, PLAY_W * 0.05, PLAY_W * 0.95);
         placed = placeCueBall(state, spot.x, spot.y);
       }
-      if (!placed) {
-        // último recurso: força a branca no ponto livre mais próximo
-        const cue = cueBall(state);
-        for (let r = 0; r < 60 && !placed; r++) {
-          for (let a = 0; a < 12 && !placed; a++) {
-            const ang = (a / 12) * Math.PI * 2;
-            placed = placeCueBall(state, cue.x + Math.cos(ang) * r * 6, cue.y + Math.sin(ang) * r * 6);
-          }
-        }
-      }
+      updateHUD();
     }
 
     G.aim.angle = plan.angle;
-    G.power = plan.power;
-    updatePowerUI();
+    setPower(plan.power, { silent: true });
     updateHUD();
 
     later(() => {
       el.think.hidden = true;
       G.aiPlaying = false;
       if (!G.state || G.state.phase === 'gameover' || G.state.phase === 'shooting') return;
-      doShoot(plan.angle, plan.power, plan.spin || { x: 0, y: 0 });
-    }, 420 + Math.random() * 320);
-  }, 560 + Math.random() * 520);
+      G.strike = { t0: performance.now(), dur: 110, power: plan.power };
+      later(() => {
+        G.strike = null;
+        doShoot(plan.angle, plan.power, plan.spin || { x: 0, y: 0 });
+        setPower(0, { silent: true });
+      }, 120);
+    }, 380 + Math.random() * 260);
+  }, 520 + Math.random() * 480);
 }
 
-/* ---------------------------------------------------------------- */
-/* fim da tacada                                                    */
-/* ---------------------------------------------------------------- */
-
-function drainSounds() {
+/* ================= fim da tacada ================= */
+function consumeImpacts() {
   const log = G.log;
   if (!log) return;
-  const contacts = log.contacts.splice(0, log.contacts.length);
-  contacts.sort((a, b) => b.speed - a.speed);
-  contacts.slice(0, 3).forEach((c) => Sound.click(c.speed));
-  const cushions = log.cushionHits.splice(0, log.cushionHits.length);
-  cushions.sort((a, b) => b.speed - a.speed);
-  cushions.slice(0, 2).forEach((c) => Sound.cushion(c.speed));
-  if (log.pocketed.length > G.potSoundCount) {
-    G.potSoundCount = log.pocketed.length;
-    Sound.pocket();
-  }
-}
-
-function addPocketEffects() {
-  const state = G.state;
-  for (const b of state.balls) {
-    if (b.pocketed && b.fx !== true) {
-      b.fx = true;
-      G.effects.push({
-        type: 'pocket',
-        x: b.x,
-        y: b.y,
-        t: performance.now() / 1000,
-        life: 0.55,
-      });
+  for (const im of log.impacts) {
+    const s = im.speed;
+    if (im.type === 'ball') {
+      Sound.click(s);
+      if (s > 2600) particles.spark(im.x, im.y, Math.min(1.2, s / 5000));
+    } else if (im.type === 'cushion') {
+      Sound.cushion(s);
+      if (s > 1500) particles.dust(im.x, im.y, Math.min(1.1, s / 5000), { spread: 16 });
+    } else if (im.type === 'pocket') {
+      Sound.pocket(s, im.pocketId);
+      const strength = Math.min(1.4, s / 3500);
+      const p = G.state && G.state.balls.length ? null : null;
+      void p;
+      particles.pocketDust(im.x, im.y, strength);
+      if (s > 1400) particles.dust(im.x, im.y, strength, { spread: 34 });
     }
-    if (!b.pocketed) b.fx = false;
   }
+  log.impacts.length = 0;
 }
 
 function finishShot() {
@@ -455,12 +467,11 @@ function finishShot() {
   if (!state) return;
 
   if (state.mode === 'practice') {
-    finishPracticeShot();
+    finishPractice();
     return;
   }
 
   const res = resolveShot(state, G.log);
-  updateHUD();
 
   if (res.gameOver) {
     const humanWon = res.winner === 0;
@@ -469,63 +480,56 @@ function finishShot() {
       store.data.pots += state.stats.potted;
       store.data.bestStreak = Math.max(store.data.bestStreak, state.stats.bestStreak);
       store.data.coins += humanWon ? 180 : 45;
+      // giz de recompensa
+      if (humanWon && Math.random() < 0.5) store.data.chalkWhite = Math.min(9, store.data.chalkWhite + 1);
       store.save();
-      updateCoins(true);
     }
     Sound[humanWon || state.mode === 'local' ? 'win' : 'lose']();
-    later(() => showEnd(res), 700);
+    updateHUD();
+    later(() => showEnd(res), 750);
     return;
   }
 
-  const kind = res.foul ? 'foul' : res.continueTurn ? 'good' : '';
-  toast(res.message, kind);
+  if (res.foul) { Sound.foul(); toast(res.message, 'foul'); }
+  else if (res.pottedObjects.length) { Sound.potGood(); toast(res.message, 'good'); }
+  else toast(res.message, res.continueTurn ? 'good' : '');
+  if (!res.continueTurn) later(() => Sound.turn(), 260);
 
-  if (state.ballInHand) {
-    canvas.classList.add('ballinhand');
-  }
+  G.turnLeft = TURN_TIME;
   updateHUD();
 
-  if (state.players[state.turn]?.isAI) {
-    later(scheduleAI, 650);
-  } else if (state.phase === 'aim') {
-    pointAtNearestTarget();
-  }
+  if (state.players[state.turn]?.isAI) later(scheduleAI, 700);
+  else if (state.phase === 'aim') pointAtNearestTarget();
 }
 
-function finishPracticeShot() {
+function finishPractice() {
   const state = G.state;
   const log = G.log;
   const potted = log.pocketed
     .map((id) => state.balls.find((b) => b.id === id))
-    .filter((b) => b && b.number > 0)
-    .map((b) => b.number);
+    .filter((b) => b && b.number > 0);
 
   if (potted.length) store.data.pots += potted.length;
-
   if (log.cuePocketed) {
     const cue = cueBall(state);
+    const spot = randomFreeSpot(state, PLAY_W * 0.08, PLAY_W * 0.6);
     cue.pocketed = false;
     cue.pocketId = null;
-    cue.sinkT = 0;
-    const spot = randomFreeSpot(state, PLAY_W * 0.1, PLAY_W * 0.6);
+    cue.sinkT = 1;
     cue.x = spot.x;
     cue.y = spot.y;
     cue.vx = 0;
     cue.vy = 0;
-    toast('Branca na caixa. Shift+clique para reposicionar.', 'foul');
+    cue.om = { x: 0, y: 0, z: 0 };
+    toast('Branca na caixa. Shift + clique para reposicionar.', 'foul');
   } else if (potted.length) {
     const rest = state.balls.filter((b) => !b.pocketed && b.number > 0).length;
-    store.save();
     toast(rest === 0 ? 'Mesa limpa! Você encaçapou todas.' : `${potted.length} bola(s) na caçapa · faltam ${rest}`, 'good');
-  } else {
-    toast('Shift+clique move a branca', '');
   }
-
   state.phase = 'aim';
   state.turn = 0;
   state.ballInHand = false;
   updateHUD();
-  updateCoins();
 }
 
 function showEnd(res) {
@@ -533,9 +537,7 @@ function showEnd(res) {
   const humanWon = state.mode === 'local' ? true : res.winner === 0;
   const winnerName = state.players[res.winner]?.name || '—';
   el.endBadge.textContent = humanWon ? '🏆' : '💥';
-  el.endTitle.textContent = state.mode === 'local'
-    ? `${winnerName} venceu!`
-    : humanWon ? 'Vitória!' : 'Derrota';
+  el.endTitle.textContent = state.mode === 'local' ? `${winnerName} venceu!` : humanWon ? 'Vitória!' : 'Derrota';
   el.endReason.textContent = res.message || state.winnerReason || '';
   el.endStats.innerHTML = `
     <div><b>${state.stats.potted}</b><small>bolas suas</small></div>
@@ -545,25 +547,17 @@ function showEnd(res) {
   if (humanWon) startConfetti();
 }
 
-/* ---------------------------------------------------------------- */
-/* confete                                                          */
-/* ---------------------------------------------------------------- */
-
-const confetti = {
-  ctx: null, parts: [], raf: null, until: 0,
-};
-
+/* ================= confete ================= */
+const confetti = { ctx: null, parts: [], raf: null, until: 0 };
 function startConfetti() {
   const c = el.confetti;
   const dpr = Math.min(2, window.devicePixelRatio || 1);
   c.width = window.innerWidth * dpr;
   c.height = window.innerHeight * dpr;
-  c.style.width = '100%';
-  c.style.height = '100%';
   confetti.ctx = c.getContext('2d');
   confetti.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  const colors = ['#f3c85c', '#3ddc84', '#ff5a5f', '#63a6ff', '#ffffff', '#c084fc'];
-  confetti.parts = Array.from({ length: 140 }, () => ({
+  const colors = ['#f3c85c', '#35d07f', '#ff5a5f', '#4ea3ff', '#ffffff', '#c084fc'];
+  confetti.parts = Array.from({ length: 130 }, () => ({
     x: Math.random() * window.innerWidth,
     y: -20 - Math.random() * window.innerHeight * 0.6,
     vx: (Math.random() - 0.5) * 60,
@@ -578,7 +572,6 @@ function startConfetti() {
   confetti.until = performance.now() + 4200;
   if (!confetti.raf) confettiTick(performance.now());
 }
-
 function confettiTick(now) {
   const c = el.confetti;
   const ctx = confetti.ctx;
@@ -593,18 +586,14 @@ function confettiTick(now) {
     ctx.save();
     ctx.translate(p.x, p.y);
     ctx.rotate(p.rot);
-    ctx.fillStyle = p.color;
     ctx.globalAlpha = now > confetti.until ? Math.max(0, 1 - (now - confetti.until) / 600) : 1;
+    ctx.fillStyle = p.color;
     ctx.fillRect(-p.w / 2, -p.h / 2, p.w, p.h);
     ctx.restore();
   }
-  if (now < confetti.until + 700) {
-    confetti.raf = requestAnimationFrame(confettiTick);
-  } else {
-    stopConfetti();
-  }
+  if (now < confetti.until + 700) confetti.raf = requestAnimationFrame(confettiTick);
+  else stopConfetti();
 }
-
 function stopConfetti() {
   if (confetti.raf) cancelAnimationFrame(confetti.raf);
   confetti.raf = null;
@@ -612,41 +601,56 @@ function stopConfetti() {
   if (confetti.ctx) confetti.ctx.clearRect(0, 0, window.innerWidth, window.innerHeight);
 }
 
-/* ---------------------------------------------------------------- */
-/* loop principal                                                   */
-/* ---------------------------------------------------------------- */
-
+/* ================= loop ================= */
 function loop(now) {
   G.frameId = requestAnimationFrame(loop);
-  const state = G.state;
-  const dt = Math.min(0.045, (now - (G.last || now)) / 1000);
+  const dt = Math.min(0.05, (now - (G.last || now)) / 1000);
   G.last = now;
-  // relógio único para animações e carga de força (performance.now),
-  // independente da base de tempo do requestAnimationFrame
   const clock = performance.now();
-  const time = clock / 1000;
+  const state = G.state;
 
   if (state) {
     if (state.phase === 'shooting') {
-      const moving = simulate(state, dt, G.log);
-      drainSounds();
-      addPocketEffects();
+      const moving = simulate(state, dt * TIME_SCALE, G.log);
+      consumeImpacts();
+      particles.update(dt);
       if (!moving) {
         state.phase = 'resolving';
-        G.charging = false;
-        updatePowerUI();
-        later(finishShot, 260);
+        later(finishShot, 320);
+      }
+    } else {
+      particles.update(dt);
+    }
+
+    // buffs com tempo
+    let buffChanged = false;
+    if (G.buffs.power > 0) { G.buffs.power = Math.max(0, G.buffs.power - dt); if (G.buffs.power === 0) buffChanged = true; }
+    if (G.buffs.spin > 0) { G.buffs.spin = Math.max(0, G.buffs.spin - dt); if (G.buffs.spin === 0) buffChanged = true; }
+    if (buffChanged) updateBuffs();
+
+    // relógio do turno
+    const humanTurn = !state.players[state.turn]?.isAI;
+    if (humanTurn && state.phase === 'aim' && !state.ballInHand) {
+      G.turnLeft -= dt;
+      if (G.turnLeft <= 0) {
+        G.turnLeft = TURN_TIME;
+        toast('Tempo esgotado — vez do adversário.', 'foul');
+        Sound.foul();
+        state.turn = 1 - state.turn;
+        state.phase = 'aim';
+        updateHUD();
+        if (state.players[state.turn]?.isAI) later(scheduleAI, 500);
       }
     }
+    const frac = clamp(G.turnLeft / TURN_TIME, 0, 1);
+    el.turnBar.style.width = `${frac * 100}%`;
+    el.turnBar.className = frac < 0.2 ? 'low' : frac < 0.45 ? 'warn' : '';
 
-    if (G.charging && state.phase === 'aim') {
-      const held = (clock - G.chargeStart) / 1000;
-      G.power = clamp(0.05 + held * 1.25, 0.05, 1);
-      updatePowerUI();
-    }
-
-    const humanCanAim = !state.players[state.turn]?.isAI && state.phase === 'aim';
+    const humanCanAim = humanCanAct() && state.phase === 'aim';
     const guide = G.showGuide && humanCanAim ? aimGuide(state, G.aim.angle) : null;
+    const strikeOffset = G.strike
+      ? clamp((clock - G.strike.t0) / G.strike.dur, 0, 1) * (14 + G.strike.power * 118)
+      : 0;
 
     renderer.draw({
       state,
@@ -654,28 +658,18 @@ function loop(now) {
       guide,
       power: G.power,
       showGuide: G.showGuide,
-      time,
+      time: clock / 1000,
       pointer: G.pointer,
       pointerValid: G.pointerValid,
-      effects: G.effects,
-      charging: G.charging,
+      particles,
+      strike: G.strike ? { offset: strikeOffset } : null,
     });
   }
 }
 
-/* ---------------------------------------------------------------- */
-/* entrada                                                          */
-/* ---------------------------------------------------------------- */
-
+/* ================= entrada ================= */
 function pointerWorld(ev) {
   return renderer.toWorld(ev.clientX, ev.clientY);
-}
-
-function humanCanAct() {
-  const state = G.state;
-  if (!state) return false;
-  if (state.phase === 'gameover' || state.phase === 'shooting' || state.phase === 'resolving') return false;
-  return !state.players[state.turn]?.isAI || state.mode === 'practice';
 }
 
 canvas.addEventListener('pointermove', (ev) => {
@@ -684,29 +678,18 @@ canvas.addEventListener('pointermove', (ev) => {
   const p = pointerWorld(ev);
   G.pointer = p;
 
-  if (state.mode === 'practice' && G.draggingCue) {
-    const cue = cueBall(state);
-    if (cue) {
-      cue.x = clamp(p.x, BALL_R, PLAY_W - BALL_R);
-      cue.y = clamp(p.y, BALL_R, PLAY_H - BALL_R);
-      G.pointerValid = isFreeSpot(state, cue.x, cue.y);
-    }
-    return;
-  }
-
   if (state.ballInHand && humanCanAct()) {
     const cx = clamp(p.x, BALL_R, PLAY_W - BALL_R);
     const cy = clamp(p.y, BALL_R, PLAY_H - BALL_R);
-    G.pointerValid = isFreeSpot(state, cx, cy);
     G.pointer = { x: cx, y: cy };
+    G.pointerValid = isFreeSpot(state, cx, cy);
     canvas.classList.toggle('invalid', !G.pointerValid);
     return;
   }
 
-  if (humanCanAct()) {
+  if (humanCanAct() && state.phase === 'aim') {
     const cue = cueBall(state);
     if (cue && !cue.pocketed) {
-      // mirar também enquanto carrega a força (arrastar = ajuste fino)
       G.aim.angle = Math.atan2(p.y - cue.y, p.x - cue.x);
     }
   }
@@ -716,17 +699,17 @@ canvas.addEventListener('pointerdown', (ev) => {
   Sound.unlock();
   const state = G.state;
   if (!state) return;
-  canvas.setPointerCapture?.(ev.pointerId);
   const p = pointerWorld(ev);
 
-  if (state.mode === 'practice' && (ev.shiftKey || G.draggingCue)) {
+  // treino: shift + clique move a branca
+  if (state.mode === 'practice' && (ev.shiftKey || ev.altKey)) {
     const cue = cueBall(state);
     if (cue) {
-      G.draggingCue = true;
-      if (ev.shiftKey) {
-        cue.x = clamp(p.x, BALL_R, PLAY_W - BALL_R);
-        cue.y = clamp(p.y, BALL_R, PLAY_H - BALL_R);
-      }
+      cue.x = clamp(p.x, BALL_R, PLAY_W - BALL_R);
+      cue.y = clamp(p.y, BALL_R, PLAY_H - BALL_R);
+      cue.vx = 0;
+      cue.vy = 0;
+      Sound.ui();
     }
     return;
   }
@@ -740,99 +723,86 @@ canvas.addEventListener('pointerdown', (ev) => {
       Sound.ui();
       G.pointerValid = true;
       canvas.classList.remove('invalid', 'ballinhand');
-      G.charging = false;
-      pointAtNearestTarget();
       updateHUD();
-      toast('Branca posicionada. Mire e tace.', '');
+      toast('Branca posicionada.', '');
+      pointAtNearestTarget();
     }
     return;
   }
 
-  if (state.phase !== 'aim') return;
-
-  // mira no ponto tocado e começa a carregar
-  const cue = cueBall(state);
-  if (cue) G.aim.angle = Math.atan2(p.y - cue.y, p.x - cue.x);
-  G.charging = true;
-  G.chargeStart = performance.now();
-  G.power = 0.05;
-});
-
-function releaseShot() {
-  if (!G.charging) return;
-  const state = G.state;
-  G.charging = false;
-  if (!state || state.phase !== 'aim' || !humanCanAct()) {
-    G.power = 0;
-    updatePowerUI();
-    return;
+  if (state.phase === 'aim') {
+    const cue = cueBall(state);
+    if (cue) G.aim.angle = Math.atan2(p.y - cue.y, p.x - cue.x);
   }
-  humanShoot();
-}
+});
 
-canvas.addEventListener('pointerup', () => {
-  G.draggingCue = false;
+canvas.addEventListener('pointerup', () => { G.pointer = null; });
+
+/* barra de força: puxa para baixo */
+el.powerBar.addEventListener('pointerdown', (ev) => {
+  Sound.unlock();
+  if (!humanCanAct()) return;
+  if (G.state.phase !== 'aim') return;
+  ev.preventDefault();
+  G.charging = true;
+  G.powerPointer = ev.pointerId;
+  el.powerBar.setPointerCapture?.(ev.pointerId);
+  setPower(powerFromEvent(ev));
+  Sound.pull(G.power);
+});
+
+el.powerBar.addEventListener('pointermove', (ev) => {
+  if (!G.charging) return;
+  ev.preventDefault();
+  const p = powerFromEvent(ev);
+  if (p - G.power > 0.08) Sound.pull(p);
+  setPower(p);
+});
+
+function endPowerDrag(ev) {
+  if (!G.charging) return;
+  if (ev && ev.pointerId !== undefined && G.powerPointer !== null && ev.pointerId !== G.powerPointer) return;
   releaseShot();
-});
-canvas.addEventListener('pointercancel', () => { G.charging = false; G.draggingCue = false; });
-canvas.addEventListener('pointerleave', () => {
-  if (G.charging) releaseShot();
-});
+}
+el.powerBar.addEventListener('pointerup', endPowerDrag);
+el.powerBar.addEventListener('pointercancel', () => { G.charging = false; setPower(0, { silent: true }); });
+window.addEventListener('pointerup', endPowerDrag);
 
+/* roda do mouse: ajuste fino da mira */
 canvas.addEventListener('wheel', (ev) => {
   const state = G.state;
   if (!state || !humanCanAct() || state.ballInHand) return;
   ev.preventDefault();
-  const dir = Math.sign(ev.deltaY);
-  G.aim.angle += dir * 0.006;
+  G.aim.angle += Math.sign(ev.deltaY) * 0.005;
 }, { passive: false });
 
+/* teclado */
 window.addEventListener('keydown', (ev) => {
   const state = G.state;
   if (ev.code === 'Escape') {
     if (el.overlayEnd.classList.contains('open')) return;
-    if (document.querySelector('.overlay.open')) {
-      document.querySelectorAll('.overlay.open').forEach(closeOverlay);
-      return;
-    }
+    const open = document.querySelector('.overlay.open');
+    if (open) { closeOverlay(open); return; }
     if (state && el.screens.game.classList.contains('active')) openOverlay(el.overlayMenu);
     return;
   }
+  if (ev.code === 'KeyG') { toggleGuide(); return; }
+  if (ev.code === 'KeyR') { if (state) startGame({ mode: G.mode, difficulty: G.difficulty }); return; }
   if (!state || !humanCanAct() || state.ballInHand) return;
-  if (ev.code === 'ArrowLeft') { G.aim.angle -= ev.shiftKey ? 0.0015 : 0.009; ev.preventDefault(); }
-  if (ev.code === 'ArrowRight') { G.aim.angle += ev.shiftKey ? 0.0015 : 0.009; ev.preventDefault(); }
-  if (ev.code === 'Space' || ev.code === 'Enter') {
-    ev.preventDefault();
-    if (!G.charging) {
-      G.charging = true;
-      G.chargeStart = performance.now();
-      G.power = 0.05;
-      updatePowerUI();
-    }
-  }
+  if (ev.code === 'ArrowLeft') { G.aim.angle -= ev.shiftKey ? 0.0012 : 0.008; ev.preventDefault(); }
+  if (ev.code === 'ArrowRight') { G.aim.angle += ev.shiftKey ? 0.0012 : 0.008; ev.preventDefault(); }
 });
 
-window.addEventListener('keyup', (ev) => {
-  if (ev.code === 'Space' || ev.code === 'Enter') {
-    releaseShot();
-  }
-});
-
-/* efeito (spin) */
+/* efeito (spin pad) */
 function setSpinFromEvent(ev) {
   const rect = el.spinPad.getBoundingClientRect();
-  const r = rect.width / 2;
-  if (!r) return;
-  let dx = (ev.clientX - rect.left - r) / (r * 0.82);
-  let dy = (ev.clientY - rect.top - r) / (r * 0.82);
+  const r = rect.width / 2 || 1;
+  let dx = (ev.clientX - rect.left - r) / (r * 0.86);
+  let dy = (ev.clientY - rect.top - r) / (r * 0.86);
   const d = Math.hypot(dx, dy);
   if (d > 1) { dx /= d; dy /= d; }
-  const state = G.state;
-  if (state) state.shot.spin = { x: dx, y: -dy };
-  setSpinUI(dx, dy);
-  el.spinPad.classList.toggle('active', d > 0.05);
+  setSpin(dx, -dy);
 }
-
 let spinDrag = false;
 el.spinPad.addEventListener('pointerdown', (ev) => {
   Sound.unlock();
@@ -842,15 +812,36 @@ el.spinPad.addEventListener('pointerdown', (ev) => {
 });
 el.spinPad.addEventListener('pointermove', (ev) => { if (spinDrag) setSpinFromEvent(ev); });
 window.addEventListener('pointerup', () => { spinDrag = false; });
-el.spinPad.addEventListener('dblclick', () => {
-  if (G.state) G.state.shot.spin = { x: 0, y: 0 };
-  setSpinUI(0, 0);
-  el.spinPad.classList.remove('active');
-});
+el.spinPad.addEventListener('dblclick', () => setSpin(0, 0));
 
-/* ---------------------------------------------------------------- */
-/* menu e botões                                                    */
-/* ---------------------------------------------------------------- */
+/* ================= giz ================= */
+function useChalk(kind) {
+  Sound.unlock();
+  const key = kind === 'white' ? 'chalkWhite' : 'chalkBlue';
+  if (store.data[key] <= 0) { toast('Sem giz desse tipo. Ganhe partidas para conseguir mais.', 'foul'); return; }
+  if (kind === 'white' && G.buffs.power > 0) return;
+  if (kind === 'blue' && G.buffs.spin > 0) return;
+  store.data[key] -= 1;
+  G.buffs[kind === 'white' ? 'power' : 'spin'] = CHALK_TIME;
+  store.save();
+  Sound.chalk();
+  updateBuffs();
+  toast(kind === 'white'
+    ? 'Giz branco: +45% de força na próxima tacada enquanto durar.'
+    : 'Giz azul: efeito dobrado enquanto durar.', 'good');
+}
+el.chalkWhite.addEventListener('click', () => useChalk('white'));
+el.chalkBlue.addEventListener('click', () => useChalk('blue'));
+
+/* ================= menus e botões ================= */
+function toggleGuide() {
+  G.showGuide = !G.showGuide;
+  el.btnGuide.classList.toggle('on', G.showGuide);
+  $('#optGuide').checked = G.showGuide;
+  store.data.guide = G.showGuide;
+  store.save();
+  Sound.ui();
+}
 
 document.querySelectorAll('.mode-card').forEach((card) => {
   card.addEventListener('click', () => {
@@ -889,42 +880,28 @@ document.querySelectorAll('.diff-chip').forEach((chip) => {
   });
 });
 
-$('#btn-start-ai').addEventListener('click', () => {
-  Sound.ui();
-  startGame({ mode: 'ai', difficulty: G.difficulty });
-});
-
+$('#btn-start-ai').addEventListener('click', () => startGame({ mode: 'ai', difficulty: G.difficulty }));
 $('#btn-help').addEventListener('click', () => { openOverlay(el.overlayHelp); Sound.ui(); });
-$('#btn-guide').addEventListener('click', () => {
-  G.showGuide = !G.showGuide;
-  el.btnGuide.classList.toggle('on', G.showGuide);
-  $('#optGuide').checked = G.showGuide;
-  store.data.guide = G.showGuide;
-  store.save();
-  Sound.ui();
-});
+$('#btn-guide').addEventListener('click', toggleGuide);
 $('#optGuide').addEventListener('change', (ev) => {
   G.showGuide = ev.target.checked;
   el.btnGuide.classList.toggle('on', G.showGuide);
   store.data.guide = G.showGuide;
   store.save();
 });
-
 $('#btn-sound').addEventListener('click', () => {
   const on = !Sound.enabled;
   Sound.setEnabled(on);
   store.data.sound = on;
   store.save();
   el.btnSound.classList.toggle('off', !on);
-  if (on) Sound.ui();
+  Sound.toggle(on);
 });
-
 $('#btn-menu').addEventListener('click', () => {
   if (el.screens.game.classList.contains('active')) openOverlay(el.overlayMenu);
-  else { openOverlay(el.overlayHelp); }
+  else openOverlay(el.overlayHelp);
   Sound.ui();
 });
-
 document.querySelectorAll('[data-close]').forEach((btn) => {
   btn.addEventListener('click', () => {
     const node = document.getElementById(btn.dataset.close);
@@ -932,22 +909,12 @@ document.querySelectorAll('[data-close]').forEach((btn) => {
     Sound.ui();
   });
 });
-
-$('#btn-again').addEventListener('click', () => {
-  if (!G.state) return;
-  startGame({ mode: G.mode, difficulty: G.difficulty });
-});
-$('#btn-restart-menu').addEventListener('click', () => {
-  closeOverlay(el.overlayMenu);
-  startGame({ mode: G.mode, difficulty: G.difficulty });
-});
+$('#btn-again').addEventListener('click', () => startGame({ mode: G.mode, difficulty: G.difficulty }));
+$('#btn-restart-menu').addEventListener('click', () => { closeOverlay(el.overlayMenu); startGame({ mode: G.mode, difficulty: G.difficulty }); });
 $('#btn-home-menu').addEventListener('click', goHome);
 $('#btn-exit').addEventListener('click', goHome);
 $('#btn-back-menu').addEventListener('click', goHome);
-$('#btn-rematch').addEventListener('click', () => {
-  closeOverlay(el.overlayEnd);
-  startGame({ mode: G.mode, difficulty: G.difficulty });
-});
+$('#btn-rematch').addEventListener('click', () => { closeOverlay(el.overlayEnd); startGame({ mode: G.mode, difficulty: G.difficulty }); });
 
 function goHome() {
   clearTimers();
@@ -956,24 +923,24 @@ function goHome() {
   closeOverlay(el.overlayMenu);
   stopConfetti();
   updateMenuStats();
-  updateCoins();
+  updateHUD();
   showScreen('menu');
 }
 
-/* ---------------------------------------------------------------- */
-/* inicialização                                                    */
-/* ---------------------------------------------------------------- */
+function updateMenuStats() {
+  el.menuStats.wins.textContent = formatNumber(store.data.wins);
+  el.menuStats.losses.textContent = formatNumber(store.data.losses);
+  el.menuStats.pots.textContent = formatNumber(store.data.pots);
+  el.menuStats.streak.textContent = formatNumber(store.data.bestStreak);
+}
 
-/* reserva o espaço do HUD para a mesa não ficar escondida atrás dele */
+/* ================= layout ================= */
 function syncInsets() {
   const gameActive = el.screens.game.classList.contains('active');
-  const panel = el.panels[0];
-  let top = 10;
-  if (gameActive && panel) {
-    const h = panel.getBoundingClientRect().height || 0;
-    top = Math.round(h) + 22;
-  }
-  renderer.setInsets({ top, left: 10, right: 10, bottom: 10 });
+  const topbarH = el.topbar.getBoundingClientRect().height || 0;
+  let top = 8;
+  if (gameActive) top = Math.max(8, Math.round(topbarH * 0.0) + 8);
+  renderer.setInsets({ top, left: 56, right: 62, bottom: 12 });
 }
 
 function resizeAll() {
@@ -981,7 +948,6 @@ function resizeAll() {
   renderer.resize();
   if (el.confetti.classList.contains('on')) startConfetti();
 }
-
 window.addEventListener('resize', resizeAll);
 window.addEventListener('orientationchange', resizeAll);
 if ('ResizeObserver' in window) {
@@ -989,9 +955,10 @@ if ('ResizeObserver' in window) {
   ro.observe(canvas.parentElement);
 }
 
+/* ================= inicialização ================= */
 syncInsets();
 renderer.resize();
-updateCoins();
+showScreen('menu');
 updateMenuStats();
 updateHUD();
 el.btnGuide.classList.toggle('on', G.showGuide);
@@ -1000,9 +967,6 @@ el.btnSound.classList.toggle('off', !store.data.sound);
 Sound.setEnabled(store.data.sound !== false);
 document.querySelectorAll('.diff-chip').forEach((c) => c.classList.toggle('active', c.dataset.diff === G.difficulty));
 document.querySelectorAll('#diffList .diff-item').forEach((b) => b.classList.toggle('active', b.dataset.diff === G.difficulty));
-
-// primeiro clique libera o áudio
 window.addEventListener('pointerdown', () => Sound.unlock(), { once: true });
 
-// gancho de depuração/uso manual
-window.__bp8 = { G, store, startGame };
+window.__bp8 = { G, store, startGame, Sound, particles, renderer, powerToSpeed, isMoving };

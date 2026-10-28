@@ -14,14 +14,17 @@
  */
 
 import { TABLE, SPOT_FOOT, BALL_R, PLAY_W, PLAY_H, groupOf, isFreeSpot, randomFreeSpot } from './table.js';
-import { MAX_SHOT_SPEED, createRack } from './physics.js';
+import { createRack, powerToSpeed, identityQ } from './physics.js';
 
 export const GROUPS = { solid: 'lisas', stripe: 'listradas', eight: 'bola 8' };
 
 export function makeBall(id, number, x, y) {
   return {
     id, number, x, y, vx: 0, vy: 0, pocketed: false, pocketId: null,
-    rollX: 0, rollY: 0, sinkT: 0, group: groupOf(number),
+    om: { x: 0, y: 0, z: 0 },          // velocidade angular (rad/s)
+    q: identityQ(),                    // orientação (matriz 3x3)
+    sinkT: 1, sinkSpeed: 0, sinkFromX: x, sinkFromY: y,
+    group: groupOf(number),
   };
 }
 
@@ -129,7 +132,9 @@ export function legalTargets(state, player = state.turn) {
   return groupBalls(state, tg);
 }
 
-export function startShot(state, { angle, power, spin = { x: 0, y: 0 } }) {
+export function startShot(state, {
+  angle, power, spin = { x: 0, y: 0 }, powerMult = 1, spinMult = 1,
+}) {
   const cue = cueBall(state);
   if (!cue || cue.pocketed) return false;
   // foto do estado ANTES da tacada: as regras dependem dela
@@ -140,15 +145,30 @@ export function startShot(state, { angle, power, spin = { x: 0, y: 0 } }) {
     breakShot: state.breakShot,
     cleared: g ? groupBalls(state, g).length === 0 : false,
   };
-  state.shot = { angle, power, spin };
+  const effPower = Math.max(0.02, Math.min(1, power * powerMult));
+  state.shot = { angle, power, effPower, spin };
   state.cueSpent = false;
   state.phase = 'shooting';
   state.ballInHand = false;
-  const v = Math.max(0.06, Math.min(1, power)) * MAX_SHOT_SPEED;
+
+  const v = powerToSpeed(effPower);
   cue.vx = Math.cos(angle) * v;
   cue.vy = Math.sin(angle) * v;
+
+  // efeito: topo/fundo + lateral viram velocidade angular real
+  const r = BALL_R;
+  const sy = Math.max(-1, Math.min(1, spin.y * spinMult));
+  const sx = Math.max(-1, Math.min(1, spin.x * spinMult));
+  const roll = v / r;
+  // centro (0) → a bola desliza e "pega" rolagem sozinha;
+  // topo (+1) → gira além da rolagem (follow); fundo (−1) → gira ao contrário (draw)
+  const spinFactor = sy >= 0 ? sy * 2.1 : sy * 0.85;
+  cue.om.x = (-cue.vy / (v || 1)) * roll * spinFactor;
+  cue.om.y = (cue.vx / (v || 1)) * roll * spinFactor;
+  cue.om.z = sx * roll * 0.7;
+
   state.shots++;
-  state.stats.powers.push(power);
+  state.stats.powers.push(effPower);
   return true;
 }
 
@@ -178,7 +198,8 @@ export function respotEight(state) {
   eight.y = spot.y;
   eight.vx = 0;
   eight.vy = 0;
-  eight.sinkT = 0;
+  eight.om = { x: 0, y: 0, z: 0 };
+  eight.sinkT = 1;
 }
 
 /**
@@ -324,7 +345,8 @@ export function resolveShot(state, log) {
     cue.vy = 0;
     cue.pocketed = false;
     cue.pocketId = null;
-    cue.sinkT = 0;
+    cue.sinkT = 1;
+    cue.om = { x: 0, y: 0, z: 0 };
     state.ballInHand = true;
   } else if (res.foul) {
     state.ballInHand = true;
@@ -368,6 +390,10 @@ export function placeCueBall(state, x, y) {
   cue.y = cy;
   cue.vx = 0;
   cue.vy = 0;
+  cue.om = { x: 0, y: 0, z: 0 };
+  cue.pocketed = false;
+  cue.pocketId = null;
+  cue.sinkT = 1;
   state.ballInHand = false;
   state.phase = 'aim';
   return true;

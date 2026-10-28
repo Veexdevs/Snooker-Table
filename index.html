@@ -3,9 +3,9 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
-<meta name="theme-color" content="#0a1512" />
+<meta name="theme-color" content="#0a1020" />
 <title>8 Ball Pool — Mesa Profissional</title>
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='32' cy='32' r='30' fill='%23131313'/%3E%3Ccircle cx='32' cy='32' r='18' fill='%23f7f4ea'/%3E%3Ctext x='32' y='43' font-family='Arial' font-size='26' font-weight='bold' text-anchor='middle' fill='%23131313'%3E8%3C/text%3E%3C/svg%3E" />
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='32' cy='32' r='30' fill='%23131313'/%3E%3Ccircle cx='32' cy='32' r='17' fill='%23f7f4ea'/%3E%3Ctext x='32' y='42' font-family='Arial' font-size='24' font-weight='bold' text-anchor='middle' fill='%23131313'%3E8%3C/text%3E%3C/svg%3E" />
 <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
@@ -13,26 +13,41 @@
 
   <!-- ===================== BARRA SUPERIOR ===================== -->
   <header id="topbar">
-    <button id="btn-menu" class="icon-btn" aria-label="Menu">
-      <svg viewBox="0 0 24 24" width="20" height="20"><path d="M4 7h16M4 12h16M4 17h16" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+    <button id="btn-menu" class="menu-btn" aria-label="Menu">
+      <svg viewBox="0 0 24 24" width="22" height="22"><path d="M4 7h16M4 12h16M4 17h16" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg>
     </button>
 
-    <div class="brand">
-      <span class="brand-8">8</span>
-      <span class="brand-txt">BALL <b>POOL</b></span>
-      <span class="brand-tag">MESA PROFISSIONAL</span>
+    <div class="player-card" id="card0">
+      <div class="avatar" id="avatar0">V</div>
+      <div class="p-info">
+        <div class="p-name"><span id="name0">Você</span><span class="lvl" id="lvl0">★ 21</span></div>
+        <div class="p-coins"><i class="coin"></i><span id="coins0">2.500</span></div>
+        <div class="p-group">grupo aberto</div>
+      </div>
+      <div class="balls-row" id="balls0"></div>
     </div>
 
-    <div class="top-actions">
-      <div class="coins" id="coins">
-        <span class="coin-icon"></span>
-        <span id="coinValue">2.500</span>
+    <div class="turn-center">
+      <div class="turn-text" id="turnText">Sua vez</div>
+      <div class="turn-bar"><i id="turnBar"></i></div>
+    </div>
+
+    <div class="player-card right" id="card1">
+      <div class="balls-row" id="balls1"></div>
+      <div class="p-info right">
+        <div class="p-name"><span class="lvl" id="lvl1">★ 78</span><span id="name1">Computador</span></div>
+        <div class="p-coins"><i class="coin"></i><span id="coins1">100</span></div>
+        <div class="p-group">grupo aberto</div>
       </div>
+      <div class="avatar" id="avatar1">C</div>
+    </div>
+
+    <div class="top-tools">
       <button id="btn-sound" class="icon-btn" aria-label="Som">
-        <svg viewBox="0 0 24 24" width="20" height="20"><path d="M4 9v6h4l5 4V5L8 9H4z" fill="currentColor"/><path class="sound-wave" d="M16.5 8.5a5 5 0 010 7M19 6a8.5 8.5 0 010 12" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round"/></svg>
+        <svg viewBox="0 0 24 24" width="19" height="19"><path d="M4 9v6h4l5 4V5L8 9H4z" fill="currentColor"/><path class="sound-wave" d="M16.5 8.5a5 5 0 010 7M19 6a8.5 8.5 0 010 12" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round"/></svg>
       </button>
       <button id="btn-help" class="icon-btn" aria-label="Como jogar">
-        <svg viewBox="0 0 24 24" width="20" height="20"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="1.8" fill="none"/><path d="M9.6 9.4a2.5 2.5 0 114.1 2c-.9.7-1.7 1.2-1.7 2.4" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round"/><circle cx="12" cy="17" r="1.1" fill="currentColor"/></svg>
+        <svg viewBox="0 0 24 24" width="19" height="19"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="1.8" fill="none"/><path d="M9.6 9.4a2.5 2.5 0 114.1 2c-.9.7-1.7 1.2-1.7 2.4" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round"/><circle cx="12" cy="17" r="1.1" fill="currentColor"/></svg>
       </button>
     </div>
   </header>
@@ -42,13 +57,11 @@
     <!-- ===================== MENU ===================== -->
     <section id="screen-menu" class="screen active">
       <div class="menu-hero">
-        <div class="ball-logo">
-          <div class="ball-logo-inner">8</div>
-        </div>
-        <h1>Bem-vindo à mesa<br /><span>profissional</span></h1>
+        <div class="ball-logo"><div class="ball-logo-inner">8</div></div>
+        <h1>8 Ball Pool<br /><span>mesa profissional</span></h1>
         <p class="hero-sub">
-          Regras oficiais do 8-Ball, física real e caçapas do tamanho da bola.
-          Só entra quem tem mira.
+          Regras oficiais, física realista e caçapas do tamanho da bola.
+          As bolas rolam de verdade — e só entra quem tem mira.
         </p>
       </div>
 
@@ -59,25 +72,23 @@
           <p>Escolha o nível do adversário e jogue uma partida completa.</p>
           <span class="mode-go">Jogar agora →</span>
         </button>
-
         <button class="mode-card" data-mode="local">
           <span class="mode-badge">2 JOGADORES</span>
           <h3>Na mesma mesa</h3>
-          <p>Passa o mouse: cada jogador dá a sua tacada no mesmo dispositivo.</p>
+          <p>Passa o turno: cada jogador dá a sua tacada no mesmo dispositivo.</p>
           <span class="mode-go">Jogar com um amigo →</span>
         </button>
-
         <button class="mode-card" data-mode="practice">
           <span class="mode-badge">TREINO</span>
-          <h3>Treino de caçapa</h3>
-          <p>Reposiciona a branca, treina cortes finos e domina a caçapa apertada.</p>
+          <h3>Treino livre</h3>
+          <p>Reposiciona a branca, testa efeito e domina a caçapa apertada.</p>
           <span class="mode-go">Treinar mira →</span>
         </button>
       </div>
 
-      <div class="difficulty-row" id="difficultyRow">
+      <div class="difficulty-row">
         <span class="diff-label">Nível do adversário:</span>
-        <div class="diff-options" role="radiogroup">
+        <div class="diff-options">
           <button class="diff-chip" data-diff="easy">Amador</button>
           <button class="diff-chip active" data-diff="medium">Intermediário</button>
           <button class="diff-chip" data-diff="pro">Profissional</button>
@@ -93,7 +104,7 @@
       </div>
 
       <p class="menu-foot">
-        ⚠️ Caçapas do tamanho da bola: 1,27× o diâmetro nos cantos. Quem não capricha, perde a vez.
+        ⚠️ Caçapas de 1,27× o diâmetro da bola. Barra de força à esquerda: puxe para baixo para carregar e solte para tacar.
       </p>
     </section>
 
@@ -103,31 +114,57 @@
         <canvas id="table-bg" aria-hidden="true"></canvas>
         <canvas id="table" aria-label="Mesa de sinuca"></canvas>
 
-        <!-- jogador 1 -->
-        <div class="player-panel left" id="panel0">
-          <div class="avatar-wrap">
-            <div class="turn-ring" id="ring0"></div>
-            <div class="avatar avatar-p1" id="avatar0">V</div>
-            <span class="turn-dot"></span>
+        <!-- barra de força vertical -->
+        <div class="power-column" id="powerColumn">
+          <div class="power-cap">FORÇA</div>
+          <div class="power-bar" id="powerBar">
+            <div class="power-track">
+              <div class="power-fill" id="powerFill"></div>
+              <div class="power-ticks"></div>
+            </div>
+            <div class="power-handle" id="powerHandle"><span></span></div>
           </div>
-          <div class="player-info">
-            <div class="player-name" id="name0">Você</div>
-            <div class="group-pill" id="group0">grupo aberto</div>
-            <div class="potted-strip" id="potted0"></div>
-          </div>
+          <div class="power-value" id="powerPct">0%</div>
+          <div class="power-hint">puxe ↓</div>
         </div>
 
-        <!-- jogador 2 -->
-        <div class="player-panel right" id="panel1">
-          <div class="player-info right">
-            <div class="player-name" id="name1">Computador</div>
-            <div class="group-pill" id="group1">grupo aberto</div>
-            <div class="potted-strip" id="potted1"></div>
+        <!-- ferramentas da direita -->
+        <div class="right-tools">
+          <button class="tool chalk white" id="chalkWhite" title="Giz branco: +45% de força por 45s">
+            <span class="chalk-shape"></span>
+            <span class="tool-label">+FORÇA</span>
+            <span class="tool-count" id="countWhite">3</span>
+            <span class="tool-timer" id="timerWhite"></span>
+          </button>
+          <button class="tool chalk blue" id="chalkBlue" title="Giz azul: dobra o efeito por 45s">
+            <span class="chalk-shape"></span>
+            <span class="tool-label">+EFEITO</span>
+            <span class="tool-count" id="countBlue">3</span>
+            <span class="tool-timer" id="timerBlue"></span>
+          </button>
+          <button class="tool" id="btn-guide" title="Linha de mira">
+            <svg viewBox="0 0 24 24" width="20" height="20"><path d="M3 12h18M3 12l4-4M3 12l4 4" stroke="currentColor" stroke-width="1.9" fill="none" stroke-linecap="round"/><circle cx="18" cy="12" r="3.2" stroke="currentColor" stroke-width="1.9" fill="none"/></svg>
+            <span class="tool-label">MIRA</span>
+          </button>
+          <button class="tool" id="btn-again" title="Reiniciar (R)">
+            <svg viewBox="0 0 24 24" width="20" height="20"><path d="M20 12a8 8 0 11-2.4-5.7M20 4v4h-4" stroke="currentColor" stroke-width="1.9" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            <span class="tool-label">NOVO</span>
+          </button>
+          <button class="tool" id="btn-exit" title="Sair">
+            <svg viewBox="0 0 24 24" width="20" height="20"><path d="M14 4h4a2 2 0 012 2v12a2 2 0 01-2 2h-4M10 8l-4 4 4 4M6 12h9" stroke="currentColor" stroke-width="1.9" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            <span class="tool-label">SAIR</span>
+          </button>
+        </div>
+
+        <!-- controle de efeito -->
+        <div class="spin-widget">
+          <div class="cue-ball-control" id="spinPad" title="Ponto de efeito na bola branca">
+            <div class="spin-cross"></div>
+            <div class="spin-dot" id="spinDot"></div>
           </div>
-          <div class="avatar-wrap">
-            <div class="turn-ring" id="ring1"></div>
-            <div class="avatar avatar-p2" id="avatar1">C</div>
-            <span class="turn-dot"></span>
+          <div class="spin-meta">
+            <span class="spin-title">EFEITO</span>
+            <span class="spin-now" id="spinNow">centro</span>
           </div>
         </div>
 
@@ -136,40 +173,8 @@
           <span class="dot"></span><span class="dot"></span><span class="dot"></span>
           <em id="thinkText">pensando…</em>
         </div>
-      </div>
 
-      <div class="bottom-bar">
-        <div class="spin-box">
-          <div class="cue-ball-control" id="spinPad" title="Ponto de efeito na branca">
-            <div class="spin-cross"></div>
-            <div class="spin-dot" id="spinDot"></div>
-          </div>
-          <span class="spin-label">efeito</span>
-        </div>
-
-        <div class="power-box">
-          <div class="power-labels"><span>FORÇA</span><span id="powerPct">0%</span></div>
-          <div class="power-track" id="powerTrack">
-            <div class="power-fill" id="powerFill"></div>
-            <div class="power-ticks"></div>
-          </div>
-          <div class="shot-help" id="shotHelp">Mova o mouse para mirar · segure para carregar · solte para tacar</div>
-        </div>
-
-        <div class="actions">
-          <button id="btn-guide" class="ghost-btn" title="Linha de mira (G)">
-            <svg viewBox="0 0 24 24" width="18" height="18"><path d="M3 12h18M3 12l4-4M3 12l4 4" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round"/><circle cx="18" cy="12" r="3.2" stroke="currentColor" stroke-width="1.8" fill="none"/></svg>
-            <span>mira</span>
-          </button>
-          <button id="btn-again" class="ghost-btn" title="Reiniciar partida (R)">
-            <svg viewBox="0 0 24 24" width="18" height="18"><path d="M20 12a8 8 0 11-2.4-5.7M20 4v4h-4" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
-            <span>reiniciar</span>
-          </button>
-          <button id="btn-exit" class="ghost-btn" title="Sair">
-            <svg viewBox="0 0 24 24" width="18" height="18"><path d="M14 4h4a2 2 0 012 2v12a2 2 0 01-2 2h-4M10 8l-4 4 4 4M6 12h9" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
-            <span>sair</span>
-          </button>
-        </div>
+        <div class="buff-strip" id="buffStrip"></div>
       </div>
     </section>
   </main>
@@ -179,15 +184,16 @@
     <div class="modal">
       <h2>Como jogar</h2>
       <ul class="help-list">
-        <li><b>A mira</b> segue o mouse. Ajuste fino com as setas ← → ou a rodinha do mouse.</li>
-        <li><b>Força:</b> segure o botão do mouse (ou a barra de espaço) até a força desejada e solte para tacar. Soltar cedo = tacada fraca.</li>
-        <li><b>Efeito:</b> clique no círculo da bola branca (canto inferior esquerdo) para bater acima, abaixo ou de lado.</li>
-        <li><b>Regras:</b> a mesa começa aberta. O primeiro grupo que você encaçapar vira seu. Depois é só limpar o seu grupo e matar a 8 por último.</li>
-        <li><b>Faltas:</b> branca na caçapa, não tocar em bola, tocar primeiro a bola errada, não levar nenhuma bola à tabela ou não conseguir. Falta = bola na mão para o adversário.</li>
-        <li><b>Caçapas apertadas:</b> a boca é praticamente do tamanho da bola. Corte fino e força excessiva matam a tacada.</li>
+        <li><b>Mira:</b> mova o mouse sobre a mesa. Setas ← → dão o ajuste fino (com Shift é mais fino ainda).</li>
+        <li><b>Barra de força (esquerda):</b> clique e <b>puxe para baixo</b> — o taco se afasta e a força sobe de 0% a 100%. Solte para tacar. Se voltar até 0% e soltar, cancela.</li>
+        <li><b>Força:</b> o topo da barra entrega 5× a força de uma tacada comum — é o mesmo que 0–500% de potência.</li>
+        <li><b>Efeito:</b> arraste o ponto na bola branca (canto inferior esquerdo) para bater no topo (follow), embaixo (draw) ou de lado (english).</li>
+        <li><b>Giz branco:</b> +45% de força enquanto durar. <b>Giz azul:</b> dobra o efeito enquanto durar.</li>
+        <li><b>Regras:</b> mesa aberta na quebra; o primeiro grupo que você encaçapar vira seu. Limpe o grupo e mate a 8 por último.</li>
+        <li><b>Faltas:</b> branca na caçapa, não tocar em bola, tocar primeiro a bola errada ou não levar nenhuma bola à tabela. Falta = bola na mão.</li>
       </ul>
       <div class="modal-foot">
-        <label class="switch"><input type="checkbox" id="optGuide" checked /><span></span> mostrar linha de mira</label>
+        <label class="switch"><input type="checkbox" id="optGuide" checked /><span></span> mostrar mira</label>
         <button class="primary-btn" data-close="overlay-help">Entendi</button>
       </div>
     </div>
