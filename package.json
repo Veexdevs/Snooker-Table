@@ -1,0 +1,18 @@
+{
+  "name": "snooker-table",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "8 Ball Pool — mesa profissional com caçapas do tamanho da bola",
+  "scripts": {
+    "dev": "node tools/serve.mjs",
+    "start": "node tools/serve.mjs",
+    "test": "node tools/dom-test.mjs",
+    "test:rules": "node tools/selfplay.mjs pro 6 && node tools/foul-stats.mjs pro",
+    "test:shots": "node tools/render-test.mjs aim && node tools/render-test.mjs midgame && node tools/render-test.mjs pockets"
+  },
+  "devDependencies": {
+    "@napi-rs/canvas": "^0.1.80",
+    "jsdom": "^26.1.0"
+  }
+}
