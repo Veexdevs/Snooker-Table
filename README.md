@@ -95,15 +95,16 @@ Detalhes técnicos que fazem diferença na jogabilidade:
 ## Testes
 
 ```bash
-npm install          # só para as ferramentas (jsdom + canvas headless)
-npm test             # partida completa em DOM headless, com cliques reais
-npm run test:rules   # 6 partidas IA x IA validando física e regras
-npm test             # também cobre: bola na mão, efeito, fim de jogo e revanche
+npm install                 # só para as ferramentas (jsdom + canvas headless)
+npm test                    # partida completa em DOM headless, com cliques reais
+npm run test:rules          # partidas IA x IA validando física e regras
+npm run test:shots          # imagens da mesa para conferência visual
 node tools/screenshot.mjs   # regenera docs/mesa.jpg
 ```
 
-Os testes de interface cobrem: abrir o menu, começar a partida, mirar com o mouse,
-segurar/soltar para tacar, posicionar a branca na mão, reiniciar, revanche e sair.
+O `npm test` cobre: menu, escolha de nível, tacada com mouse (segurar/soltar),
+bola na mão, efeito, treino livre, dois jogadores, fim de partida e revanche —
+tudo com eventos reais no DOM, verificando que nenhum erro de JavaScript acontece.
 
 ## Estatísticas
 

@@ -197,6 +197,45 @@ console.log('confete on:', endCanvas.classList.contains('on'));
 window.document.querySelector('#btn-rematch').click();
 await sleep(200);
 console.log('revanche → fase:', G.state.phase, 'tacadas:', G.state.shots, '| overlay fechado:', !window.document.querySelector('#overlay-end').classList.contains('open'));
+
+/* ---------- treino livre ---------- */
+window.document.querySelector('#btn-exit').click();
+await sleep(120);
+window.document.querySelector('.mode-card[data-mode="practice"]').click();
+await sleep(250);
+window.dispatchEvent(new window.Event('resize'));
+await sleep(120);
+console.log('treino:', { modo: G.state.mode, fase: G.state.phase, jogador: G.state.players[1].isAI });
+
+/* move a branca com Shift e taca */
+const cueBall = G.state.balls.find((b) => b.id === 'cue');
+const destino = toClient(PLAY_W * 0.3, PLAY_H * 0.6);
+cueBall.x = PLAY_W * 0.3; cueBall.y = PLAY_H * 0.6;
+const alvo = toClient(PLAY_W * 0.62, PLAY_H * 0.42);
+fire(canvas, 'pointermove', alvo);
+fire(canvas, 'pointerdown', alvo);
+await sleep(300);
+fire(canvas, 'pointerup', alvo);
+for (let i = 0; i < 100 && G.state.phase === 'shooting'; i++) await sleep(100);
+await sleep(400);
+console.log('treino após tacada:', { fase: G.state.phase, mensagem: G.state.message, restam: G.state.balls.filter((b) => !b.pocketed && b.number > 0).length });
+
+/* ---------- dois jogadores ---------- */
+window.document.querySelector('#btn-exit') || null;
+window.__bp8.startGame({ mode: 'local' });
+await sleep(250);
+window.dispatchEvent(new window.Event('resize'));
+await sleep(120);
+const st = G.state;
+const c2 = st.balls.find((b) => b.id === 'cue');
+const pt2 = toClient(c2.x + 120, c2.y);
+fire(canvas, 'pointermove', pt2);
+fire(canvas, 'pointerdown', pt2);
+await sleep(700);
+fire(canvas, 'pointerup', pt2);
+for (let i = 0; i < 120 && G.state.phase === 'shooting'; i++) await sleep(100);
+await sleep(400);
+console.log('local após quebra:', { modo: G.state.mode, turno: G.state.turn, fase: G.state.phase, msg: G.state.message, ia: G.state.players.map((p) => p.isAI) });
 console.log('erros capturados:', errors.length);
 await sleep(200);
 process.exit(errors.length ? 1 : 0);
